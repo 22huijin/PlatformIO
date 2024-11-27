@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "iom128.h": "c",
+        "delay.h": "c"
+    }
+}
