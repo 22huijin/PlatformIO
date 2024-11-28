@@ -21,7 +21,9 @@ const char* morse_codes[7] = {
 };
 
 // FND에 출력할 숫자 정의 (점: 1, 선: 2)
-const uint8_t fnd_display[2] = {0x80, 0x08}; // FND 숫자 1, 2
+unsigned char fnd_display[2] = {0x80, 0x08}; // FND 숫자 1, 2
+// 모스 부호 음계 주파수 (C, D, E, F, G, A, B)
+float freq_table[7] = {1046.6, 1174.6, 1318.6, 1397.0, 1568.0, 1760.0, 1975.6};
 
 volatile char input_sequence[5] = ""; // 임시 점/선 저장
 volatile uint8_t input_index = 0;     // 현재 입력된 점/선 인덱스
@@ -49,13 +51,13 @@ unsigned int read_adc() {
 }
 
 // 입력된 모스부호를 음계로 변환
-char check_morse(const char* sequence) {
+float check_morse(const char* sequence) {
     for (uint8_t i = 0; i < 7; i++) {
         if (strcmp(sequence, morse_codes[i]) == 0) {
-            return 'C' + i; // 'C'부터 시작
+            return freq_table[i]; // 'C'부터 시작
         }
     }
-    return '?'; // 알 수 없는 입력
+    return -1; // 알 수 없는 입력
 }
 
 // 스위치 1: 점 입력
@@ -93,12 +95,33 @@ void update_fnd_display() {
     }
 }
 
+void custom_delay_us(int us) {
+    for(int i = 0; i < us; i++) {
+        _delay_us(1);
+    }
+}
+
+void paly_buzzer(float hz[8]) {
+    for(int i = 0 ; i < 8 ; i++){
+        int us = (int)(500000 / hz[i]);
+        int count = (int)(hz[i] / 2);
+
+        for(int j = 0; j < count; j++) {
+            PORTB |= (1 << PB4);
+            custom_delay_us(us);
+            PORTB &= ~(1 << PB4);
+            custom_delay_us(us);
+        }
+    }
+}
+
 int main(void) {
     // 입출력 설정
     DDRC = 0xFF; // FND 데이터 출력
     DDRG = 0x0F; // FND 선택 출력
     DDRA = 0xFF; // LED 출력
     DDRE = 0xCF; // 스위치 입력
+    DDRB |= (1 << PB4); // 부저 선택
 
     // ADC 초기화
     adc_init();
@@ -108,7 +131,7 @@ int main(void) {
     EIMSK = 0x30; // INT4, INT5 Enable
     sei();        // 글로벌 인터럽트 활성화
 
-    char results[10]; // 최종 음계 결과 저장
+    float results[8]; // 최종 음계 결과 저장
     uint8_t result_index = 0;
 
     while (1) {
@@ -122,9 +145,9 @@ int main(void) {
         // reset_flag가 설정되었으면 입력 초기화
         if (reset_flag == ON) { //E문제 해결 필요
             input_sequence[input_index] = '\0'; // 입력 종료
-            char note = check_morse(input_sequence); // 입력된 모스부호 확인
-            if (note != '?') {
-                results[result_index++] = note; // 음계 결과 저장
+            float note = check_morse(input_sequence); // 입력된 모스부호 확인
+            if (note != -1) {
+                results[result_index++] = note; // 음계 주파수 결과 저장
                 PORTA |= (1 << (result_index - 1)); // LED 점등
             }
 
@@ -134,6 +157,12 @@ int main(void) {
             }
             input_index = 0;      // 입력 인덱스 초기화
             reset_flag = OFF;
+
+            if (result_index==8){
+                _delay_ms(10);
+                PORTA = 0x00;
+                paly_buzzer(results);
+            }
         }
 
         // _delay_ms(100); // 안정성을 위한 작은 지연
