@@ -1,14 +1,14 @@
-#define F_CPU 16000000UL
 #include <avr/io.h>
 #include <avr/iom128.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <string.h>
 
-#define NULL 0
 #define ON 1
 #define OFF 0
 
+// FND에 출력할 점 선 정의 (., _)
+unsigned char fnd_display[2] = {0x80, 0x08};
 // 모스부호 음계 정의
 const char* morse_codes[7] = {
     "-.-.",   // C
@@ -19,29 +19,14 @@ const char* morse_codes[7] = {
     ".-",     // A
     "-..."    // B
 };
-
-// FND에 출력할 숫자 정의
-unsigned char digit[10] = {
-    0x3F, // 0
-    0x06, // 1
-    0x5B, // 2
-    0x4F, // 3
-    0x66, // 4
-    0x6D, // 5
-    0x7D, // 6
-    0x07, // 7
-    0x7F, // 8
-    0x6F  // 9
-};
-
-// FND에 출력할 점 선 정의
-unsigned char fnd_display[2] = {0x80, 0x08}; // FND (.), (_)
+// FND에 출력할 알파벳 정의 (C, D, E, F, G, A, B)
+unsigned char digit[7] = {0x39, 0x3f, 0x79, 0x71, 0x3d, 0x77, 0x7f};
 // 모스 부호 음계 주파수 (C, D, E, F, G, A, B)
 float freq_table[7] = {1046.6, 1174.6, 1318.6, 1397.0, 1568.0, 1760.0, 1975.6};
 
-volatile char input_sequence[5] = ""; // 임시 점, 선 저장
-volatile uint8_t input_index = 0;     // 현재 입력된 점, 선 인덱스
-volatile uint8_t reset_flag = OFF;    // 광센서 작동 플래그
+char input_sequence[5] = ""; // 임시 점, 선 저장
+int input_index = 0;     // 현재 입력된 점, 선 인덱스
+int reset_flag = OFF;    // 광센서 작동 플래그
 
 // ADC 초기화
 void adc_init() {
@@ -64,11 +49,15 @@ unsigned int read_adc() {
 
 // 입력된 모스부호를 음계로 변환
 float check_morse(const char* sequence) {
-    for (uint8_t i = 0; i < 7; i++) {
+    for (int i = 0; i < 7; i++) {
         if (strcmp(sequence, morse_codes[i]) == 0) {
+            PORTC = digit[i];
+            PORTG = 1;
+            _delay_ms(1000);
             return freq_table[i]; // 'C'부터 시작
         }
     }
+    error();
     return -1; // 알 수 없는 입력
 }
 
@@ -89,7 +78,7 @@ ISR(INT5_vect) {
 }
 
 void update_fnd_display() {
-    for (uint8_t i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++) {
         // FND에 점 또는 선을 출력
         if (input_sequence[i] == '.') {
             PORTC = fnd_display[0]; // 점 표시
@@ -123,7 +112,10 @@ void paly_buzzer(float hz[8]) {
     }
 }
 
-void error_buzzer() {
+void error() {
+    PORTC = 0xFF;   // 모든 FND 켜기
+    PORTG = 0x0F;   // 모든 FND 선택
+
     float hz = 1000.0;
     int us = (int)(500000 / hz);
     int count = (int)(hz / 2);
@@ -134,11 +126,7 @@ void error_buzzer() {
         PORTB &= ~(1 << PB4);
         custom_delay_us(us);
     }
-}
-
-void error_display() {
-    PORTC = 0xFF;   // 모든 FND 켜기
-    PORTG = 0x0F;   // 모든 FND 선택
+    _delay_ms(200);
 }
 
 int main(void) {
@@ -158,7 +146,7 @@ int main(void) {
     sei();        // 글로벌 인터럽트 활성화
 
     float results[8]; // 최종 음계 결과 저장
-    uint8_t result_index = 0;
+    int result_index = 0;
 
     while (1) {
         unsigned int adc_value = read_adc(); // 광센서 값 읽기
@@ -175,26 +163,24 @@ int main(void) {
             if (note != -1) {
                 results[result_index++] = note; // 음계 주파수 결과 저장
                 PORTA |= (1 << (result_index - 1)); // LED 점등
-            } else {
-                error_display();
-                error_buzzer();
             }
 
             // FND, 입력 초기화
-            for (uint8_t i = 0; i < 4; i++) {
+            for (int i = 0; i < 4; i++) {
                 input_sequence[i] = 0;  // FND 값 초기화
             }
             input_index = 0;      // 입력 인덱스 초기화
             reset_flag = OFF;
 
             if (result_index==8){
-                _delay_ms(10);
+                PORTC = 0xFF;
+                PORTG = 0x0F;
                 PORTA = 0x00;
                 paly_buzzer(results);
+                result_index=0;
+                _delay_ms(10);
             }
         }
-
-        // _delay_ms(100); // 안정성을 위한 작은 지연
 
         update_fnd_display();
     }
