@@ -11,37 +11,49 @@
 
 // 모스부호 음계 정의
 const char* morse_codes[7] = {
-    "-.-.",   // C: 선 점 선 점
-    "-..",    // D: 선 점 점
-    ".",      // E: 점
-    "..-.",   // F: 점 점 선 점
-    "--.",    // G: 선 선 점
-    ".-",     // A: 점 선
-    "-..."    // B: 선 점 점 점
+    "-.-.",   // C
+    "-..",    // D
+    ".",      // E
+    "..-.",   // F
+    "--.",    // G
+    ".-",     // A
+    "-..."    // B
 };
 
-// FND에 출력할 숫자 정의 (점: 1, 선: 2)
-unsigned char fnd_display[2] = {0x80, 0x08}; // FND 숫자 1, 2
+// FND에 출력할 숫자 정의
+unsigned char digit[10] = {
+    0x3F, // 0
+    0x06, // 1
+    0x5B, // 2
+    0x4F, // 3
+    0x66, // 4
+    0x6D, // 5
+    0x7D, // 6
+    0x07, // 7
+    0x7F, // 8
+    0x6F  // 9
+};
+
+// FND에 출력할 점 선 정의
+unsigned char fnd_display[2] = {0x80, 0x08}; // FND (.), (_)
 // 모스 부호 음계 주파수 (C, D, E, F, G, A, B)
 float freq_table[7] = {1046.6, 1174.6, 1318.6, 1397.0, 1568.0, 1760.0, 1975.6};
 
-volatile char input_sequence[5] = ""; // 임시 점/선 저장
-volatile uint8_t input_index = 0;     // 현재 입력된 점/선 인덱스
+volatile char input_sequence[5] = ""; // 임시 점, 선 저장
+volatile uint8_t input_index = 0;     // 현재 입력된 점, 선 인덱스
 volatile uint8_t reset_flag = OFF;    // 광센서 작동 플래그
-volatile uint8_t fnd_values[4] = {0, 0, 0, 0}; // FND에 표시될 값 저장 (점/선)
 
 // ADC 초기화
 void adc_init() {
     // ADMUX 설정 (ADC0 사용)
     ADMUX = 0x00;
-
     // ADCSRA 설정 (ADC 활성화, 분주비 128)
     ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
 }
 
 // ADC 값 읽기
 unsigned int read_adc() {
-    // 변환 시작
+    // ADSC = 1 : 변환 시작
     ADCSRA |= (1 << ADSC);
     // 변환 종료 대기
     while (ADCSRA & (1 << ADSC));
@@ -64,8 +76,6 @@ float check_morse(const char* sequence) {
 ISR(INT4_vect) {
     if (input_index < 4) {
         input_sequence[input_index++] = '.'; // 점 추가
-        // PORTC = fnd_display[0];             // FND에 점 표시
-        // PORTG = (1 << (4 - input_index));   // FND 선택
         _delay_ms(200); // 안정성을 위해 잠시 지연
     }
 }
@@ -74,8 +84,6 @@ ISR(INT4_vect) {
 ISR(INT5_vect) {
     if (input_index < 4) {
         input_sequence[input_index++] = '-'; // 선 추가
-        // PORTC = fnd_display[1];              // FND에 선 표시
-        // PORTG = (1 << (4 - input_index));    // FND 선택
         _delay_ms(200); // 안정성을 위해 잠시 지연
     }
 }
@@ -115,6 +123,24 @@ void paly_buzzer(float hz[8]) {
     }
 }
 
+void error_buzzer() {
+    float hz = 1000.0;
+    int us = (int)(500000 / hz);
+    int count = (int)(hz / 2);
+
+    for(int i = 0; i < count; i++) {
+        PORTB |= (1 << PB4);
+        custom_delay_us(us);
+        PORTB &= ~(1 << PB4);
+        custom_delay_us(us);
+    }
+}
+
+void error_display() {
+    PORTC = 0xFF;   // 모든 FND 켜기
+    PORTG = 0x0F;   // 모든 FND 선택
+}
+
 int main(void) {
     // 입출력 설정
     DDRC = 0xFF; // FND 데이터 출력
@@ -149,6 +175,9 @@ int main(void) {
             if (note != -1) {
                 results[result_index++] = note; // 음계 주파수 결과 저장
                 PORTA |= (1 << (result_index - 1)); // LED 점등
+            } else {
+                error_display();
+                error_buzzer();
             }
 
             // FND, 입력 초기화
