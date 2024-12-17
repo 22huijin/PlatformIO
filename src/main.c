@@ -51,24 +51,28 @@ unsigned int read_adc() {
     return ADC;
 }
 
+float check_special_commands(const char* sequence) {
+    if (strcmp(sequence, "....") == 0) {
+        record_flag = ON;
+        PORTC = 0x40;
+        PORTG = 0x0F;
+        _delay_ms(1000);
+        return -1;
+    } else if (strcmp(sequence, "----") == 0) {
+        paly_flag = ON;
+        record_flag = OFF;
+        PORTC = 0x49;
+        PORTG = 0x0F;
+        _delay_ms(1000);
+        return -1;
+    }
+    return 0;
+}
+
 // 입력된 모스부호를 음계로 변환
 float check_morse(const char* sequence, int index) {
-    if(index == 0){
-        if (strcmp(sequence, "....") == 0){
-            record_flag = ON;
-            PORTC = 0x40;
-            PORTG = 0x0F;
-            _delay_ms(1000);
-            return -1;
-        }
-        if(strcmp(sequence, "----") == 0){
-            paly_flag = ON;
-            record_flag = OFF;
-            PORTC = 0x49;
-            PORTG = 0x0F;
-            _delay_ms(1000);
-            return -1;
-        }
+    if (index == 0 && check_special_commands(sequence) != 0) {
+        return -1;
     }
     for (int i = 0; i < 7; i++) {
         if (strcmp(sequence, morse_codes[i]) == 0) {
@@ -109,7 +113,7 @@ void update_fnd_display() {
             PORTC = 0x00; // 비활성화
         }
         PORTG = (1 << (3 - i)); // FND 선택 (순차적으로)
-        _delay_ms(1);            // 안정성을 위한 지연
+        _delay_ms(1);// 안정성을 위한 지연
     }
 }
 
@@ -119,7 +123,7 @@ void custom_delay_us(int us) {
     }
 }
 
-void paly_buzzer(float hz[8]) {
+void play_buzzer(float hz[8]) {
     for(int i = 0 ; i < 8 ; i++){
         int us = (int)(500000 / hz[i]);
         int count = (int)(hz[i] / 2);
@@ -161,6 +165,9 @@ void save_data_to_eeprom(float* data) {
 void load_data_from_eeprom(float* data) {
     for (int i = 0; i < 8; i++) {
         data[i] = eeprom_read_float((float*)(EEPROM_ADDR + i * sizeof(float)));
+        if (isnan(data[i])){
+            return;
+        }
     }
 }
 
@@ -201,7 +208,7 @@ int main(void) {
             }
             if (paly_flag == ON){
                 load_data_from_eeprom(results);
-                PORTA = 0xFF;
+                PORTC = 0x49;
                 PORTG = 0x0F;
                 result_index = 8;
                 paly_flag = OFF;
@@ -225,7 +232,7 @@ int main(void) {
                     _delay_ms(1000);
                     continue;
                 }
-                paly_buzzer(results);
+                play_buzzer(results);
                 PORTC = 0xFF;
                 PORTG = 0x0F;
                 PORTA = 0x00;
