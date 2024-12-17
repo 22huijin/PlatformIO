@@ -3,7 +3,9 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <string.h>
+#include <avr/eeprom.h> // EEPROM 라이브러리
 
+#define EEPROM_ADDR 0 // EEPROM 시작 주소
 #define ON 1
 #define OFF 0
 
@@ -22,11 +24,13 @@ const char* morse_codes[7] = {
 // FND에 출력할 알파벳 정의 (C, D, E, F, G, A, B)
 unsigned char digit[7] = {0x39, 0x3f, 0x79, 0x71, 0x3d, 0x77, 0x7f};
 // 모스 부호 음계 주파수 (C, D, E, F, G, A, B)
-float freq_table[7] = {1046.6, 1174.6, 1318.6, 1397.0, 1568.0, 1760.0, 1975.6};
+float freq_table[7] = {1046.502, 1174.659, 1318.510, 1396.913, 1567.982, 1760.0, 1975.533};
 
 char input_sequence[5] = ""; // 임시 점, 선 저장
 int input_index = 0;     // 현재 입력된 점, 선 인덱스
 int reset_flag = OFF;    // 광센서 작동 플래그
+int record_flag = OFF;
+int paly_flag = OFF;
 
 // ADC 초기화
 void adc_init() {
@@ -48,7 +52,23 @@ unsigned int read_adc() {
 }
 
 // 입력된 모스부호를 음계로 변환
-float check_morse(const char* sequence) {
+float check_morse(const char* sequence, int index) {
+    if(index == 0){
+        if (strcmp(sequence, "....") == 0){
+            record_flag = ON;
+            PORTC = 0x40;
+            PORTG = 0x0F;
+            _delay_ms(1000);
+            return -1;
+        }
+        if(strcmp(sequence, "----") == 0){
+            paly_flag = ON;
+            PORTC = 0x49;
+            PORTG = 0x0F;
+            _delay_ms(1000);
+            return -1;
+        }
+    }
     for (int i = 0; i < 7; i++) {
         if (strcmp(sequence, morse_codes[i]) == 0) {
             PORTC = digit[i];
@@ -129,6 +149,20 @@ void error() {
     _delay_ms(200);
 }
 
+// 데이터 저장 메서드
+void save_data_to_eeprom(float* data) {
+    for (int i = 0; i < 8; i++) {
+        eeprom_update_float((float*)(EEPROM_ADDR + i * sizeof(float)), data[i]);
+    }
+}
+
+// 데이터 불러오기 메서드
+void load_data_from_eeprom(float* data) {
+    for (int i = 0; i < 8; i++) {
+        data[i] = eeprom_read_float((float*)(EEPROM_ADDR + i * sizeof(float)));
+    }
+}
+
 int main(void) {
     // 입출력 설정
     DDRC = 0xFF; // FND 데이터 출력
@@ -151,18 +185,25 @@ int main(void) {
     while (1) {
         unsigned int adc_value = read_adc(); // 광센서 값 읽기
 
-        // 광센서 값이 임계값을 넘으면 단어 구분 (여기서는 임계값 512 사용)
-        if (adc_value < 512) {
+        // 광센서 값이 임계값을 넘으면 단어 구분
+        if (adc_value < 600) {
             reset_flag = ON; // 초기화 플래그 설정
         }
 
         // reset_flag가 설정되었으면 입력 초기화
         if (reset_flag == ON) { //E문제 해결 필요
             input_sequence[input_index] = '\0'; // 입력 종료
-            float note = check_morse(input_sequence); // 입력된 모스부호 확인
+            float note = check_morse(input_sequence, result_index); // 입력된 모스부호 확인
             if (note != -1) {
                 results[result_index++] = note; // 음계 주파수 결과 저장
                 PORTA |= (1 << (result_index - 1)); // LED 점등
+            }
+            if (paly_flag == ON){
+                load_data_from_eeprom(results);
+                PORTA = 0xFF;
+                PORTG = 0x0F;
+                result_index = 8;
+                paly_flag = OFF;
             }
 
             // FND, 입력 초기화
@@ -173,10 +214,20 @@ int main(void) {
             reset_flag = OFF;
 
             if (result_index==8){
+                if(record_flag == ON){
+                    record_flag = OFF;
+                    save_data_to_eeprom(results); // EEPROM에 저장
+                    PORTA = 0x00;
+                    PORTC = 0x40;
+                    PORTG = 0x0F;
+                    result_index=0;
+                    _delay_ms(1000);
+                    continue;
+                }
+                paly_buzzer(results);
                 PORTC = 0xFF;
                 PORTG = 0x0F;
                 PORTA = 0x00;
-                paly_buzzer(results);
                 result_index=0;
                 _delay_ms(10);
             }
