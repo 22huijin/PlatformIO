@@ -63,6 +63,7 @@ float check_morse(const char* sequence, int index) {
         }
         if(strcmp(sequence, "----") == 0){
             paly_flag = ON;
+            record_flag = OFF;
             PORTC = 0x49;
             PORTG = 0x0F;
             _delay_ms(1000);
@@ -85,7 +86,7 @@ float check_morse(const char* sequence, int index) {
 ISR(INT4_vect) {
     if (input_index < 4) {
         input_sequence[input_index++] = '.'; // 점 추가
-        _delay_ms(200); // 안정성을 위해 잠시 지연
+        _delay_ms(100); // 안정성을 위해 잠시 지연
     }
 }
 
@@ -93,7 +94,7 @@ ISR(INT4_vect) {
 ISR(INT5_vect) {
     if (input_index < 4) {
         input_sequence[input_index++] = '-'; // 선 추가
-        _delay_ms(200); // 안정성을 위해 잠시 지연
+        _delay_ms(100); // 안정성을 위해 잠시 지연
     }
 }
 
@@ -108,7 +109,7 @@ void update_fnd_display() {
             PORTC = 0x00; // 비활성화
         }
         PORTG = (1 << (3 - i)); // FND 선택 (순차적으로)
-        _delay_ms(5);            // 안정성을 위한 지연
+        _delay_ms(1);            // 안정성을 위한 지연
     }
 }
 
